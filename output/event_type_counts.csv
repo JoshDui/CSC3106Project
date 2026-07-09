@@ -1,0 +1,12 @@
+event_type,count
+failed_password,5176
+accepted_password,1859
+invalid_user,751
+max_auth_attempts,640
+preauth_closed,752
+session_opened,1047
+session_closed,1046
+sudo_command,255
+cron_session,394
+possible_break_in,80
+other,0

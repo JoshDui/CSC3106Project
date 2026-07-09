@@ -1,0 +1,215 @@
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[a4paper,margin=0.65in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{caption}
+\usepackage{float}
+\usepackage[hidelinks]{hyperref}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{3pt}
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.12}
+\captionsetup{font=small,labelfont=bf}
+\setlist[itemize]{leftmargin=*,topsep=2pt,itemsep=1pt,parsep=0pt}
+\setlist[enumerate]{leftmargin=*,topsep=2pt,itemsep=1pt,parsep=0pt}
+\sloppy
+
+\newcommand{\tightsection}[1]{\vspace{6pt}\section*{#1}\vspace{-1pt}}
+\newcommand{\tightsubsection}[1]{\vspace{4pt}\subsection*{#1}\vspace{-2pt}}
+
+\begin{document}
+
+\pagenumbering{gobble}
+\begin{titlepage}
+    \centering
+    \vspace*{0.8cm}
+    \includegraphics[width=0.70\linewidth]{uofg-logo.png}
+    \vspace{1.0cm}
+
+    {\Large \textbf{CSC3106 Cyber Security}\par}
+    \vspace{1.2cm}
+    {\huge \textbf{Data-Driven Security Analysis and Defensive Response}\par}
+    \vspace{0.9cm}
+    {\Large \textbf{Team X}\par}
+
+    \vspace{1.5cm}
+    \begin{tabular}{llll}
+        \toprule
+        Name & GUID & SIT ID & Task Distribution \\
+        \midrule
+        William Oon Zhen Wei & 3070657O & 2401532 & Equal \\
+        Kieran Sim & 3070564S & 2403348 & Equal \\
+        Tan Bing Kun Terence & 3070672T & 2401883 & Equal \\
+        Dui Ru-En Joshua & 3070683D & 2402201 & Equal \\
+        \bottomrule
+    \end{tabular}
+
+    \vfill
+    {\small Cover page not counted toward the report-material page limit.}
+\end{titlepage}
+
+\pagenumbering{arabic}
+\normalsize
+
+\tightsection{Part 1: Data-Driven Authentication Log Analysis}
+
+\begin{center}
+\begin{tabular}{>{\bfseries}rl}
+    Assigned Extract: & \texttt{4\_auth.log} \\
+    Chosen Asset: & \texttt{backup01} SSH access surface and privileged \texttt{backup} account \\
+    Analysis Script: & \texttt{analysis.py} \\
+\end{tabular}
+\end{center}
+
+\tightsubsection{1. Security Question and Scope}
+\textbf{Security question.} What phases of a cyberattack directed at \texttt{backup01} can be reconstructed through SSH authentication and session data within \texttt{4\_auth.log}, and which defensive measures are most critical for securing privileged accounts?
+
+The scope focuses on host \texttt{backup01}, centering on its SSH service and the operational \texttt{backup} user. This account was subjected to intense targeting and demonstrated an accepted login during an attack wave, followed by immediate sudo activity as root. The log period is Jul 06 to Jul 12. Quantitative data and visualisations were derived using \texttt{analysis.py}. The report reconstructs visible attack stages, separates empirical log data from interpretation, and highlights visibility gaps: \texttt{auth.log} cannot prove post-compromise actions such as data exfiltration or system tampering.
+
+\tightsubsection{2. Method Summary}
+\texttt{analysis.py} decomposes log entries into syslog components before categorising \texttt{sshd}, PAM, \texttt{sudo}, and CRON messages into security events. It extracts user identities, source IPs, ports, commands, and authentication outcomes, identifies session transitions and privileged command execution, and preserves raw lines for review. Because the file lacks strict chronological ordering, timelines are reconstructed from parsed timestamps. Ordering anomalies are retained as investigation limitations, not treated as proof of tampering.
+
+\tightsubsection{3. Evidence Overview}
+The extract contains 12,000 lines, all for \texttt{backup01}. Headline counts are shown in Table 1.
+
+\begin{table}[H]
+\centering
+\caption{Headline counts from \texttt{4\_auth.log}.}
+\begin{tabular}{lr@{\hspace{1.0cm}}lr}
+\toprule
+Event type & Count & Event type & Count \\
+\midrule
+Failed password & 5,176 & Session opened & 1,047 \\
+Accepted password & 1,859 & Session closed & 1,046 \\
+Invalid user & 751 & Max auth attempts & 640 \\
+Preauth closed & 752 & Sudo command & 255 \\
+CRON session & 394 & Possible break-in warning & 80 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.76\linewidth]{output/top_source_ips_failed.png}
+\caption{Top source IPs by failed password attempts. Four sources dominate SSH failure volume; \texttt{203.0.113.89} is notable because it later records a successful \texttt{backup} login.}
+\end{figure}
+
+The high failed-password volume indicates broad SSH credential guessing. Four sources dominate: \texttt{203.0.113.88}, \texttt{198.51.100.88}, \texttt{203.0.113.89}, and \texttt{198.51.100.89}. The username targeting (\texttt{root}, \texttt{admin}, \texttt{deploy}, \texttt{postgres}, \texttt{oracle}) and sustained volume are consistent with automated opportunistic SSH scanning rather than a bespoke campaign. The volume is therefore context, not proof of compromise. What elevates the finding is that \texttt{203.0.113.89} progresses from failures to a successful privileged-account login.
+
+\tightsection{4. Attacker Lifecycle: The \texttt{203.0.113.89} Sequence}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.86\linewidth]{output/figure2_attack_stages_backup_login.png}
+\caption{Attack lifecycle stages over time with the successful \texttt{backup} login marked. The successful login occurs during a major initial-access spike on Jul 11.}
+\end{figure}
+
+The strongest finding is a single-source lifecycle on Jul 11. \texttt{203.0.113.89} produced sustained failed attempts and probing, then a successful \texttt{backup} login, an SSH session, and immediate root-level sudo activity.
+
+\begin{table}[H]
+\centering
+\caption{Critical Jul 11 authentication-to-sudo evidence chain.}
+\footnotesize
+\begin{tabularx}{\linewidth}{p{1.35cm}X p{3.0cm}p{2.25cm}}
+\toprule
+Time & Evidence & Lifecycle stage & ATT\&CK mapping \\
+\midrule
+03:07:30 & Failed login for invalid user \texttt{oracle} from \texttt{203.0.113.89}. & Account probing & T1110.001; consistent with T1087 \\
+03:07:32 & Failed password for \texttt{root} from \texttt{203.0.113.89}. & Privileged-account targeting & T1110.001 \\
+03:08:19 & Accepted password for \texttt{backup} from \texttt{203.0.113.89}. & Valid-account access over SSH & T1078; T1021.004 \\
+03:08:19 & \texttt{pam\_unix(sshd:session)} opened for user \texttt{backup}. & Session establishment & T1021.004 \\
+03:08:19 & \texttt{backup} runs \texttt{journalctl -n 200} and \texttt{systemctl status cron} as root. & Privileged post-login activity & T1548.003 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The sequence maps most defensibly to T1110.001 $\rightarrow$ T1078 $\rightarrow$ T1021.004 $\rightarrow$ T1548.003: password guessing reaches a valid account over SSH, whose sudo rights expose a path to root. The two sudo commands (\texttt{journalctl}, \texttt{systemctl status cron}) are individually legitimate administrative actions, so they are interpreted as possible privileged reconnaissance immediately after a suspicious login, not confirmed malicious action. Same-second timestamps reflect syslog's one-second precision and do not prove millisecond ordering, but the rapid login-to-sudo transition is more consistent with scripted or prepared activity than routine manual administration.
+
+\textbf{Temporal pattern.} Brute-force activity is concentrated outside working hours: roughly 70\% of failed logins (3,643 of 5,176) fall between 00:00 and 05:59, with a further spike around 23:00. Legitimate accepted logins cluster in business hours (08:00--18:00). In the overnight window there are 3,643 failed against only 149 accepted logins; daytime is close to balanced (1,533 failed vs 1,710 accepted). The successful \texttt{backup} login at 03:08:19 therefore occurs inside the peak attack window and outside the host's normal login baseline. Host-local time is assumed because no timezone is recorded.
+
+\tightsection{5. Risk Prioritisation}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.66\linewidth]{output/top_targeted_users.png}
+\caption{Top targeted usernames by failed-password plus maximum-authentication events. \texttt{backup} is the most targeted account, supporting its selection as the priority privileged asset.}
+\end{figure}
+
+Asset: \texttt{backup01}---its SSH access surface, the \texttt{backup} account, and the sudo-to-root path. The three prioritised risks trace the observed attack path: access, escalation, and impact.
+
+\begin{table}[H]
+\centering
+\caption{Prioritised risks for \texttt{backup01}.}
+\footnotesize
+\begin{tabularx}{\linewidth}{p{0.55cm}p{3.0cm}p{1.15cm}p{1.1cm}X}
+\toprule
+ID & Risk & Likelihood & Impact & Evidence and uncertainty \\
+\midrule
+R1 & Unauthorised privileged SSH access via compromised \texttt{backup} credentials & High & High & 951 failed passwords from \texttt{203.0.113.89}, followed by accepted \texttt{backup} login. Cannot prove whether the login was authorised without external context. \\
+R2 & Escalation to root through \texttt{backup} sudo rights & High & Critical & \texttt{backup} runs sudo as root immediately after login. No destructive root command is visible in auth.log. \\
+R3 & Loss of backup-data integrity or availability & Medium & Critical & A root path exists on a backup host. Auth.log does not show backup-file access, exfiltration, or tampering. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+R1 is the top priority: it combines attempted access, apparent success, and privileged activity in one source. Secondary risks---SSH-service degradation from high-volume brute force, and exposure of other sudo-capable accounts (\texttt{ops}, \texttt{arun}, \texttt{j.singer}, \texttt{j.maguire})---are noted but not prioritised here. The targeting distribution also supports prioritising the \texttt{backup} account. As shown in Figure 3, \texttt{backup} received the highest number of failed-password and maximum-authentication events among extracted usernames.
+
+\tightsection{6. Initial Response and Investigation Limitations}
+Immediate response should verify whether the \texttt{backup} login from \texttt{203.0.113.89} was authorised, rotate or disable the \texttt{backup} credentials until confirmed, preserve relevant logs, and review sudo, cron, journal, shell history, and audit evidence. High-volume SSH sources should also be blocked or rate-limited.
+
+\begin{table}[H]
+\centering
+\caption{Examples of timestamp-order anomalies. These are evidence limitations, not proof of tampering.}
+\begin{tabularx}{\linewidth}{p{1.1cm}p{2.3cm}p{2.3cm}X}
+\toprule
+Line & Previous time & Current time & Interpretation \\
+\midrule
+13 & 2026-07-06 00:49:51 & 2026-07-06 00:04:24 & Session-close entry appears after later events in file order. \\
+41 & 2026-07-06 02:19:09 & 2026-07-06 01:21:46 & Earlier session-close line appears later in the extract. \\
+70 & 2026-07-06 03:40:05 & 2026-07-06 02:56:33 & File ordering is not strictly chronological. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+This evidence is limited to \texttt{auth.log}. It shows authentication, session, and sudo activity, but not every shell command. Therefore, the extract supports likely brute-force activity, possible successful credential compromise, and privileged reconnaissance, but it does not prove botnet activity, malware execution, persistence, exfiltration, log deletion, or destructive tampering. The IP ranges are documentation-style ranges, so no real-world attribution or geolocation should be inferred.
+
+\tightsection{Part 2: Technical Defensive Response}
+\textbf{Selected risk.} R1---unauthorised privileged access to \texttt{backup01} via the compromised \texttt{backup} account, reached through opportunistic SSH brute force from \texttt{203.0.113.89} and extended to root through the account's sudo rights.
+
+\textbf{Defensive goal.} The defence targets the full path rather than brute force alone:
+\[
+\text{SSH brute-force attempts} \rightarrow \text{successful backup login} \rightarrow \text{active session} \rightarrow \text{sudo as root}.
+\]
+The response is layered: prevention to stop guessing succeeding, containment to limit damage if a credential is still compromised, and detection to catch a success the preventive layer misses.
+
+\begin{table}[H]
+\centering
+\caption{Recommended controls mapped to observed stages.}
+\footnotesize
+\begin{tabularx}{\linewidth}{p{2.45cm}p{4.65cm}X}
+\toprule
+Attack stage & Control & Effect \\
+\midrule
+Password guessing & Key-only SSH; \texttt{PasswordAuthentication no}; rate-limit/fail2ban; \texttt{PermitRootLogin no} & Password guessing no longer grants access by default; brute-force noise is reduced. \\
+Valid-account SSH access & Restrict \texttt{backup} key by source and forced command; disable interactive shell if not required & A stolen password is useless; even a stolen key only runs approved backup operations. \\
+Privilege escalation via sudo & Least-privilege sudoers for \texttt{backup}; no shell, \texttt{su}, or general sudo & A compromised \texttt{backup} context cannot obtain a general root shell. \\
+Post-compromise tampering & SELinux enforcing, confining backup domain to required files & Limits writes to critical system files and persistence locations. \\
+Evidence gaps after login & Central log forwarding plus sudo/audit logging & Preserves evidence beyond local \texttt{auth.log}. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\textbf{Prevention and containment.} Disabling password authentication removes the exposed password surface. Least-privilege sudo prevents \texttt{backup} from becoming a general root shell. SELinux in enforcing mode adds mandatory access control: the backup service should run in a confined domain permitted to touch only required backup paths. Even with residual privilege, access to sensitive paths such as \texttt{/etc/passwd}, \texttt{/etc/shadow}, \texttt{/etc/sudoers}, cron directories, SSH host keys, and logs can be denied by policy.
+
+\textbf{Detection.} A naive ``failed then accepted from the same IP'' rule is too broad: legitimate users may mistype passwords before authenticating. Selectivity should come from volume, ratio, account sensitivity, timing, and sudo follow-on. Alert when a single source IP exceeds a failed-attempt threshold above the legitimate baseline, has a heavily skewed failure-to-success ratio, then obtains an accepted login to \texttt{backup}, especially outside business hours and followed by sudo. Applied to this extract, the rule flags \texttt{203.0.113.89}.
+
+\textbf{Effectiveness and residual risk.} Key-only SSH and root-login denial reduce likelihood by removing the password-guessing success path. Least-privilege sudo and SELinux reduce impact by preventing a compromised \texttt{backup} credential from becoming broad root control. Detection thresholds must be tuned: too low recreates false positives; too high may miss low-and-slow attackers. Rate limiting can disrupt operations if aggressive, key-only SSH shifts risk to key management, and SELinux requires careful policy maintenance. These controls improve prevention, containment, detection, and investigation, but they do not retrospectively prove what happened after the Jul 11 login.
+
+\end{document}

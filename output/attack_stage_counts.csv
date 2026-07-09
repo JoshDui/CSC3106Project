@@ -1,0 +1,11 @@
+attack_stage,count
+account_probing,751
+initial_access_attempt,5176
+brute_force_or_password_spraying,640
+preauth_interruption,752
+possible_successful_access,1859
+session_activity,2093
+post_login_privileged_activity,255
+scheduled_or_background_activity,394
+suspicious_connection_warning,80
+other_or_unclassified,0
