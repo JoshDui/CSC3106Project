@@ -10,4 +10,6 @@ __pycache__/
 *.fls
 *.fdb_latexmk
 *.synctex.gz
-Team_X_latex.log
+*.log
+*.bbl
+*.blg
