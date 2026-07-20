@@ -13,3 +13,6 @@ __pycache__/
 *.log
 *.bbl
 *.blg
+
+# Compiled report PDF (built by CI, not tracked)
+report/main.pdf
