@@ -7,10 +7,10 @@
 \tightsubsection{1. Security Question and Scope}
 \textbf{Security question.} What phases of a cyberattack directed at \texttt{backup01} can be reconstructed through SSH authentication and session data within \texttt{4\_auth.log}, and which defensive measures are most critical for securing privileged accounts?
 
-The scope focuses on host \texttt{backup01}, centering on its SSH service and the operational \texttt{backup} user. This account was subjected to intense targeting and demonstrated an accepted login during an attack wave, followed by immediate sudo activity as root. The log period is Jul 06 to Jul 12. Quantitative data and visualisations were derived using \texttt{analysis.py}. The report reconstructs visible attack stages, separates empirical log data from interpretation, and highlights visibility gaps: \texttt{auth.log} cannot prove post-compromise actions such as data exfiltration or system tampering.
+The scope focuses on host \texttt{backup01}, centering on its SSH service and the operational \texttt{backup} user. This account saw multiple failed login attempts and one successful login during an attack wave, immediately followed by sudo activity as root. The log period is Jul 06 to Jul 12. Quantitative data and visualisations were derived using \texttt{analysis.py}. The report reconstructs the visible attack stages, keeps the raw log evidence separate from our interpretation, and flags what the log cannot show: \texttt{auth.log} cannot prove post-compromise actions such as data exfiltration or system tampering.
 
 \tightsubsection{2. Method Summary}
-\texttt{analysis.py} decomposes log entries into syslog components before categorising \texttt{sshd}, PAM, \texttt{sudo}, and CRON messages into security events. It extracts user identities, source IPs, ports, commands, and authentication outcomes, identifies session transitions and privileged command execution, and preserves raw lines for review while maintaining visibility into parsing coverage via separate counts for ambiguous data (refer to Appendix~\ref{app:parsing-coverage}). Because the file lacks strict chronological ordering, timelines are reconstructed from parsed timestamps. Ordering anomalies are retained as investigation limitations, not treated as proof of tampering.
+\texttt{analysis.py} splits each log line into its syslog fields, then classifies \texttt{sshd}, PAM, \texttt{sudo}, and CRON messages into security events. It pulls out usernames, source IPs, ports, commands, and authentication outcomes, tracks session transitions and privileged command execution, and keeps the raw lines for review. It also counts any lines it cannot classify cleanly, so parsing coverage stays visible (see Appendix~\ref{app:parsing-coverage}). Because the file is not strictly in time order, timelines are rebuilt from parsed timestamps; ordering anomalies are kept as investigation limitations, not treated as proof of tampering.
 
 \tightsubsection{3. Evidence Overview}
 The extract contains 12,000 lines, all for \texttt{backup01}. Headline counts are shown in Table 1.
@@ -37,17 +37,17 @@ CRON session & 394 & Possible break-in warning & 80 \\
 \caption{Top source IPs by failed password attempts. Four sources dominate SSH failure volume; \texttt{203.0.113.89} is notable because it later records a successful \texttt{backup} login.}
 \end{figure}
 
-The high number of failed passwords points to broad SSH credential guessing. Four sources account for most of it: \texttt{203.0.113.88}, \texttt{198.51.100.88}, \texttt{203.0.113.89}, and \texttt{198.51.100.89}; full counts are in Appendix~\ref{app:evidence-risk}, Table~\ref{tab:app-source-ips}. The usernames targeted (\texttt{root}, \texttt{admin}, \texttt{deploy}, \texttt{postgres}, \texttt{oracle}), together with the steady volume, match automated, opportunistic SSH scanning rather than a targeted campaign. On its own this activity is background noise, not evidence of compromise. What makes it matter is that \texttt{203.0.113.89} does not stop at failed attempts: it goes on to log in successfully to a privileged account.
+The failed passwords point to SSH credential guessing across many accounts. Four sources account for most of them: \texttt{203.0.113.88}, \texttt{198.51.100.88}, \texttt{203.0.113.89}, and \texttt{198.51.100.89}; full counts are in Appendix~\ref{app:evidence-risk}, Table~\ref{tab:app-source-ips}. The usernames targeted (\texttt{root}, \texttt{admin}, \texttt{deploy}, \texttt{postgres}, \texttt{oracle}), together with the steady volume, match automated, opportunistic SSH scanning rather than a targeted campaign. On its own this activity is background noise, not evidence of compromise. What makes it matter is that \texttt{203.0.113.89} does not stop at failed attempts: it goes on to log in successfully to a privileged account.
 
 \tightsection{4. Attacker Lifecycle: The \texttt{203.0.113.89} Sequence}
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.86\linewidth]{output/figure2_attack_stages_backup_login.png}
-\caption{Attack lifecycle stages over time with the successful \texttt{backup} login marked. The successful login occurs during a major initial-access spike on Jul 11.}
+\caption{Attack lifecycle stages over time with the successful \texttt{backup} login marked. The successful login occurs during an initial-access spike on Jul 11.}
 \end{figure}
 
-The strongest finding is a single-source lifecycle on Jul 11. \texttt{203.0.113.89} produced sustained failed attempts and probing, then a successful \texttt{backup} login, an SSH session, and immediate root-level sudo activity.
+The key finding is a full attack sequence from one source on Jul 11. \texttt{203.0.113.89} produced repeated failed attempts and probing, then a successful \texttt{backup} login, an SSH session, and root-level sudo activity.
 
 \begin{table}[H]
 \centering
@@ -66,7 +66,7 @@ Time & Evidence and interpretation & ATT\&CK \\
 \end{tabularx}
 \end{table}
 
-The sequence maps most defensibly to T1110.001 $\rightarrow$ T1078 $\rightarrow$ T1021.004 $\rightarrow$ T1548.003: password guessing reaches a valid account over SSH, whose sudo rights expose a path to root. The two sudo commands (\texttt{journalctl}, \texttt{systemctl status cron}) are individually legitimate administrative actions, so they are interpreted as possible privileged reconnaissance immediately after a suspicious login, not confirmed malicious action. Same-second timestamps reflect syslog's one-second precision and do not prove millisecond ordering, but the rapid login-to-sudo transition is more consistent with scripted or prepared activity than routine manual administration. A short raw excerpt is in Appendix~\ref{app:raw-excerpt}.
+The sequence maps most cleanly to T1110.001 $\rightarrow$ T1078 $\rightarrow$ T1021.004 $\rightarrow$ T1548.003: password guessing reaches a valid account over SSH, whose sudo rights expose a path to root. The two sudo commands (\texttt{journalctl}, \texttt{systemctl status cron}) are individually legitimate administrative actions, so they are interpreted as possible privileged reconnaissance immediately after a suspicious login, not confirmed malicious action. Same-second timestamps reflect syslog's one-second precision and do not prove millisecond ordering, but the rapid login-to-sudo transition is more consistent with scripted or prepared activity than routine manual administration. A short raw excerpt is in Appendix~\ref{app:raw-excerpt}.
 
 \textbf{Temporal pattern.} Brute-force activity is concentrated outside working hours: roughly 70\% of failed logins (3,643 of 5,176) fall between 00:00 and 05:59, with a further spike around 23:00. Legitimate accepted logins cluster in business hours (08:00--18:00). In the overnight window there are 3,643 failed against only 149 accepted logins; daytime is close to balanced (1,533 failed vs 1,710 accepted). The successful \texttt{backup} login at 03:08:19 therefore occurs inside the peak attack window and outside the host's normal login baseline, which strengthens the case that it is attacker-driven rather than routine administration (see Appendix~\ref{app:evidence-risk}, Table~\ref{tab:app-time-window}). Host-local time is assumed because no timezone is recorded.
 
