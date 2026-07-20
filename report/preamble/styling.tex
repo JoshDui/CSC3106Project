@@ -1,0 +1,30 @@
+%% ============================================================
+%% STYLING.TEX - Layout tuning, list/table styling, and macros
+%% ============================================================
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{3pt}
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.12}
+\captionsetup{font=small,labelfont=bf}
+\setlist[itemize]{leftmargin=*,topsep=2pt,itemsep=1pt,parsep=0pt}
+\setlist[enumerate]{leftmargin=*,topsep=2pt,itemsep=1pt,parsep=0pt}
+\sloppy
+
+% Tight section headings (unnumbered) used throughout the report
+\newcommand{\tightsection}[1]{\vspace{6pt}\section*{#1}\vspace{-1pt}}
+\newcommand{\tightsubsection}[1]{\vspace{4pt}\subsection*{#1}\vspace{-2pt}}
+
+% Auto-wrapping / fixed-width table column types
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+% ---- Inline code highlighting -------------------------------
+% Give every \texttt{...} token a soft coloured background so
+% commands, filenames, IPs, and identifiers read as inline code.
+\definecolor{codebg}{HTML}{EEF1F5}   % light blue-grey background
+\definecolor{codefg}{HTML}{9B1C31}   % muted dark-red monospace text
+\let\origtexttt\texttt
+\renewcommand{\texttt}[1]{%
+  {\setlength{\fboxsep}{1.4pt}%
+   \colorbox{codebg}{\origtexttt{\textcolor{codefg}{#1}}}}}
