@@ -29,9 +29,10 @@ FAILED_PASSWORD_SUSPICIOUS_THRESHOLD = 10
 MAX_AUTH_ATTEMPTS_SUSPICIOUS_THRESHOLD = 5
 SUDO_LOOKBACK_MINUTES = 10
 PRIORITY_FINDING_USERNAME = "backup"
-PRIORITY_FINDING_LOOKBACK_MINUTES = 90
+PRIORITY_FINDING_LOOKBACK_MINUTES = 60
 PRIORITY_FINDING_LOOKAHEAD_MINUTES = 150
 PRIORITY_FINDING_FAILURE_TYPES = ("failed_password", "max_auth_attempts")
+DETECTION_FAILED_PASSWORD_THRESHOLD = 50
 STALE_REPLACED_OUTPUTS = (
     "accepted_after_failures.csv",
     "suspicious_successes.png",
@@ -440,11 +441,11 @@ def select_priority_backup_login(df: pd.DataFrame) -> pd.Series | None:
         accepted_time = accepted["parsed_datetime"]
         source_ip = str(accepted["source_ip"])
         window_start = accepted_time - timedelta(minutes=PRIORITY_FINDING_LOOKBACK_MINUTES)
-        window_end = accepted_time + timedelta(minutes=PRIORITY_FINDING_LOOKAHEAD_MINUTES)
+        window_end = accepted_time
         same_source_failures = failure_df[
             (failure_df["source_ip"] == source_ip)
             & (failure_df["parsed_datetime"] >= window_start)
-            & (failure_df["parsed_datetime"] <= window_end)
+            & (failure_df["parsed_datetime"] < window_end)
         ]
         backup_failures = same_source_failures[
             same_source_failures["username"].str.lower() == PRIORITY_FINDING_USERNAME.lower()
@@ -473,6 +474,12 @@ def priority_backup_login_timeline(df: pd.DataFrame) -> pd.DataFrame:
         "successful_username",
         "failed_attempt_count",
         "backup_failed_attempt_count",
+        "preceding_window_minutes",
+        "preceding_failed_password_count",
+        "preceding_backup_failed_password_count",
+        "following_window_minutes",
+        "following_failed_password_count",
+        "following_backup_failed_password_count",
         "distinct_usernames_targeted",
         "event_time",
         "event_role",
@@ -490,28 +497,46 @@ def priority_backup_login_timeline(df: pd.DataFrame) -> pd.DataFrame:
     source_ip = str(accepted["source_ip"])
     success_time = accepted["parsed_datetime"]
     window_start = success_time - timedelta(minutes=PRIORITY_FINDING_LOOKBACK_MINUTES)
-    window_end = success_time + timedelta(minutes=PRIORITY_FINDING_LOOKAHEAD_MINUTES)
+    window_end = success_time
+    following_window_end = success_time + timedelta(minutes=PRIORITY_FINDING_LOOKAHEAD_MINUTES)
 
     failed_attempts = df[
         (df["source_ip"] == source_ip)
         & (df["event_type"].isin(PRIORITY_FINDING_FAILURE_TYPES))
         & (df["parsed_datetime"] >= window_start)
-        & (df["parsed_datetime"] <= window_end)
+        & (df["parsed_datetime"] < window_end)
     ].copy()
+
+    preceding_password_failures = failed_attempts[
+        failed_attempts["event_type"] == "failed_password"
+    ]
+    preceding_backup_password_failures = preceding_password_failures[
+        preceding_password_failures["username"].str.lower()
+        == PRIORITY_FINDING_USERNAME.lower()
+    ]
+    following_password_failures = df[
+        (df["source_ip"] == source_ip)
+        & (df["event_type"] == "failed_password")
+        & (df["parsed_datetime"] > success_time)
+        & (df["parsed_datetime"] <= following_window_end)
+    ].copy()
+    following_backup_password_failures = following_password_failures[
+        following_password_failures["username"].str.lower()
+        == PRIORITY_FINDING_USERNAME.lower()
+    ]
 
     if failed_attempts.empty:
         sequence_start = success_time
-        sequence_end = success_time
     else:
         sequence_start = failed_attempts["parsed_datetime"].min()
-        sequence_end = failed_attempts["parsed_datetime"].max()
+    sequence_end = success_time
 
     selected_events = df[
         (
             (df["source_ip"] == source_ip)
             & (df["event_type"].isin(PRIORITY_FINDING_FAILURE_TYPES))
             & (df["parsed_datetime"] >= sequence_start)
-            & (df["parsed_datetime"] <= sequence_end)
+            & (df["parsed_datetime"] < sequence_end)
         )
         | (df["line_number"] == accepted["line_number"])
     ].copy()
@@ -544,6 +569,16 @@ def priority_backup_login_timeline(df: pd.DataFrame) -> pd.DataFrame:
                 "successful_username": str(accepted["username"]),
                 "failed_attempt_count": int(len(failed_attempts)),
                 "backup_failed_attempt_count": int(len(backup_failures)),
+                "preceding_window_minutes": PRIORITY_FINDING_LOOKBACK_MINUTES,
+                "preceding_failed_password_count": int(len(preceding_password_failures)),
+                "preceding_backup_failed_password_count": int(
+                    len(preceding_backup_password_failures)
+                ),
+                "following_window_minutes": PRIORITY_FINDING_LOOKAHEAD_MINUTES,
+                "following_failed_password_count": int(len(following_password_failures)),
+                "following_backup_failed_password_count": int(
+                    len(following_backup_password_failures)
+                ),
                 "distinct_usernames_targeted": ";".join(distinct_usernames),
                 "event_time": event_time.strftime("%Y-%m-%d %H:%M:%S")
                 if not pd.isna(event_time)
@@ -558,6 +593,78 @@ def priority_backup_login_timeline(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     return pd.DataFrame(records, columns=columns)
+
+
+def accepted_backup_login_correlations(df: pd.DataFrame) -> pd.DataFrame:
+    """Measure account-specific failures immediately before accepted backup logins."""
+    columns = [
+        "accepted_time",
+        "username",
+        "source_ip",
+        "source_port",
+        "preceding_window_minutes",
+        "preceding_failed_password_count",
+        "prior_accepted_logins_from_source",
+        "is_peak_attack_window",
+        "same_timestamp_sudo_count",
+        "same_timestamp_sudo_commands",
+        "alert_threshold",
+        "alert_triggered",
+    ]
+    accepted_df = df[
+        (df["event_type"] == "accepted_password")
+        & (df["username"].str.lower() == PRIORITY_FINDING_USERNAME.lower())
+        & (df["source_ip"].astype(str) != "")
+        & (df["parsed_datetime"].notna())
+    ].copy()
+
+    records = []
+    for _, accepted in accepted_df.iterrows():
+        accepted_time = accepted["parsed_datetime"]
+        source_ip = str(accepted["source_ip"])
+        username = str(accepted["username"])
+        window_start = accepted_time - timedelta(minutes=PRIORITY_FINDING_LOOKBACK_MINUTES)
+
+        preceding_failures = df[
+            (df["event_type"] == "failed_password")
+            & (df["username"].str.lower() == username.lower())
+            & (df["source_ip"] == source_ip)
+            & (df["parsed_datetime"] >= window_start)
+            & (df["parsed_datetime"] < accepted_time)
+        ]
+        prior_acceptances = df[
+            (df["event_type"] == "accepted_password")
+            & (df["username"].str.lower() == username.lower())
+            & (df["source_ip"] == source_ip)
+            & (df["parsed_datetime"] < accepted_time)
+        ]
+        same_timestamp_sudo = df[
+            (df["event_type"] == "sudo_command")
+            & (df["username"].str.lower() == username.lower())
+            & (df["parsed_datetime"] == accepted_time)
+        ]
+        failure_count = int(len(preceding_failures))
+
+        records.append(
+            {
+                "accepted_time": accepted_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "username": username,
+                "source_ip": source_ip,
+                "source_port": accepted["source_port"],
+                "preceding_window_minutes": PRIORITY_FINDING_LOOKBACK_MINUTES,
+                "preceding_failed_password_count": failure_count,
+                "prior_accepted_logins_from_source": int(len(prior_acceptances)),
+                "is_peak_attack_window": bool(0 <= accepted_time.hour < 6),
+                "same_timestamp_sudo_count": int(len(same_timestamp_sudo)),
+                "same_timestamp_sudo_commands": ";".join(
+                    same_timestamp_sudo["command"].astype(str)
+                ),
+                "alert_threshold": DETECTION_FAILED_PASSWORD_THRESHOLD,
+                "alert_triggered": failure_count >= DETECTION_FAILED_PASSWORD_THRESHOLD,
+            }
+        )
+
+    return pd.DataFrame(records, columns=columns).sort_values("accepted_time")
 
 
 def sudo_severity(username: str, command: str) -> str:
@@ -800,8 +907,15 @@ def plot_attack_stages_over_time(
             errors="coerce",
         )
         source_ip = str(priority_timeline_df["source_ip"].iloc[0])
-        failed_attempt_count = int(priority_timeline_df["failed_attempt_count"].iloc[0])
-        backup_failed_attempt_count = int(priority_timeline_df["backup_failed_attempt_count"].iloc[0])
+        preceding_window_minutes = int(
+            priority_timeline_df["preceding_window_minutes"].iloc[0]
+        )
+        preceding_failed_password_count = int(
+            priority_timeline_df["preceding_failed_password_count"].iloc[0]
+        )
+        preceding_backup_failed_password_count = int(
+            priority_timeline_df["preceding_backup_failed_password_count"].iloc[0]
+        )
 
         if not pd.isna(success_time):
             plt.axvline(
@@ -815,8 +929,9 @@ def plot_attack_stages_over_time(
             plt.annotate(
                 (
                     f"backup login\n{source_ip}\n"
-                    f"{failed_attempt_count} failed attempts; "
-                    f"{backup_failed_attempt_count} to backup"
+                    f"prior {preceding_window_minutes}m: "
+                    f"{preceding_failed_password_count} failures; "
+                    f"{preceding_backup_failed_password_count} to backup"
                 ),
                 xy=(success_time, y_max * 0.8),
                 xytext=(18, -45),
@@ -899,6 +1014,7 @@ def generate_outputs(df: pd.DataFrame, output_dir: Path) -> dict[str, object]:
     failed_sources_df = top_source_ips_failed(df)
     targeted_users_df = targeted_user_summary(df)
     priority_timeline_df = priority_backup_login_timeline(df)
+    accepted_backup_correlations_df = accepted_backup_login_correlations(df)
     sudo_after_login_df = sudo_after_accepted_login(df)
     anomalies_df = timestamp_anomalies(df)
 
@@ -908,6 +1024,10 @@ def generate_outputs(df: pd.DataFrame, output_dir: Path) -> dict[str, object]:
     write_csv(failed_sources_df, output_dir / "top_source_ips_failed.csv")
     write_csv(targeted_users_df, output_dir / "top_targeted_users.csv")
     write_csv(priority_timeline_df, output_dir / "priority_finding_backup_login_timeline.csv")
+    write_csv(
+        accepted_backup_correlations_df,
+        output_dir / "accepted_backup_login_correlations.csv",
+    )
     write_csv(sudo_after_login_df, output_dir / "sudo_after_accepted_login.csv")
     write_csv(anomalies_df, output_dir / "timestamp_anomalies.csv")
 
@@ -923,7 +1043,9 @@ def generate_outputs(df: pd.DataFrame, output_dir: Path) -> dict[str, object]:
     priority_source_ip = ""
     priority_success_time = ""
     if not priority_timeline_df.empty:
-        priority_failed_attempt_count = int(priority_timeline_df["failed_attempt_count"].iloc[0])
+        priority_failed_attempt_count = int(
+            priority_timeline_df["preceding_backup_failed_password_count"].iloc[0]
+        )
         priority_source_ip = str(priority_timeline_df["source_ip"].iloc[0])
         priority_success_time = str(priority_timeline_df["successful_login_time"].iloc[0])
 
@@ -933,6 +1055,9 @@ def generate_outputs(df: pd.DataFrame, output_dir: Path) -> dict[str, object]:
         "priority_source_ip": priority_source_ip,
         "priority_success_time": priority_success_time,
         "timestamp_anomaly_count": len(anomalies_df),
+        "accepted_backup_alert_count": int(
+            accepted_backup_correlations_df["alert_triggered"].sum()
+        ),
     }
 
 
@@ -951,7 +1076,11 @@ def print_console_summary(df: pd.DataFrame, output_dir: Path, metrics: dict[str,
     print(f"number of suspicious source IPs: {metrics['suspicious_source_count']}")
     print(f"priority finding source IP: {metrics['priority_source_ip'] or 'not found'}")
     print(f"priority finding successful backup login: {metrics['priority_success_time'] or 'not found'}")
-    print(f"priority finding failed attempts in timeline: {metrics['priority_failed_attempt_count']}")
+    print(
+        "priority finding backup failures in preceding hour: "
+        f"{metrics['priority_failed_attempt_count']}"
+    )
+    print(f"accepted backup correlation alerts: {metrics['accepted_backup_alert_count']}")
     print(f"number of timestamp anomalies: {metrics['timestamp_anomaly_count']}")
     print(f"output folder path: {output_dir.resolve()}")
 
@@ -994,6 +1123,7 @@ Generated CSV outputs:
     top_source_ips_failed.csv
     top_targeted_users.csv
     priority_finding_backup_login_timeline.csv
+    accepted_backup_login_correlations.csv
     sudo_after_accepted_login.csv
     timestamp_anomalies.csv
 
@@ -1009,7 +1139,9 @@ Main assumptions:
       and possible_break_in evidence using thresholds near the top of the file.
     - priority_finding_backup_login_timeline.csv selects the strongest successful
       backup login sequence by counting failed attempts from the same source IP
-      around each successful backup login.
+      during the preceding 60 minutes. Post-login failures are reported separately.
+    - accepted_backup_login_correlations.csv evaluates every accepted backup login
+      against an account-specific 60-minute failure threshold.
     - figure2_attack_stages_backup_login.png marks the selected successful backup
       login on the lifecycle-stage timeline.
     - sudo_after_accepted_login.csv uses a 10-minute prior window for the same username.
