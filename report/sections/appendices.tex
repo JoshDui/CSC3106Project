@@ -15,6 +15,8 @@
 \setcounter{table}{0}
 \setcounter{figure}{0}
 
+The assessment assumes that \texttt{backup01} stores production backup data and supports restoration of production services, and that \texttt{backup} is a dedicated service identity. Under this assumption, compromise threatens both the data and the organisation's ability to recover after disruption. The log supports the access path below but cannot prove that backup data was read, altered, or deleted.
+
 \begin{table}[H]
 \centering
 \caption{Asset-focused risk matrix for \texttt{backup01}.}
@@ -24,9 +26,24 @@
 \toprule
 ID & Risk & Likelihood & Impact & Evidence and uncertainty \\
 \midrule
-R1 & Unauthorised privileged SSH access via suspected \texttt{backup} credential compromise & High & High & 951 failed passwords from \texttt{203.0.113.89}, followed by accepted \texttt{backup} login. Cannot prove whether the login was authorised without external context. \\
-R2 & Escalation to root through \texttt{backup} sudo rights & High & Critical & \texttt{backup} runs sudo as root immediately after login. No destructive root command is visible in auth.log. \\
-R3 & Loss of backup-data integrity or availability & Medium & Critical & A root path exists on a backup host. Auth.log does not show backup-file access, exfiltration, or tampering. \\
+R1 & Unauthorised access to production backup data through suspected \texttt{backup} credential compromise & High & High & 87 account-specific failures in the preceding hour, versus an established-source maximum of three, then the source's first accepted \texttt{backup} login. Authorisation remains unverified. \\
+R2 & Host-level control through broad sudo rights assigned to the \texttt{backup} service identity & High & Critical & Same-user root commands occur at the accepted-login timestamp. Different SSH process IDs prevent definitive session linkage, and no destructive command is visible. \\
+R3 & Loss, theft, corruption, or encryption of production backups and recovery capability & Medium & Critical & The assumed production-backup role and root-capable path create the consequence. \texttt{auth.log} does not show file access, exfiltration, or tampering. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Account-specific baseline before accepted \texttt{backup} logins.}
+\label{tab:app-correlation-baseline}
+\footnotesize
+\begin{tabularx}{0.9\linewidth}{L{3.1cm}r r Y}
+\toprule
+Source cohort & Accepted logins & Maximum preceding-hour failures & Interpretation \\
+\midrule
+\texttt{203.0.113.89} & 1 & 87 & Threshold exceeded; no prior accepted login from this source \\
+Twelve established sources & 389 & 3 & Established-source behaviour remains below the proposed threshold \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -42,7 +59,7 @@ Source IP & Failed & Note \\
 \midrule
 \texttt{203.0.113.88} & 1,250 & High volume; no accepted login \\
 \texttt{198.51.100.88} & 1,100 & High volume \\
-\texttt{203.0.113.89} & 951 & High volume + one successful \texttt{backup} login \\
+\texttt{203.0.113.89} & 951 & High volume + one accepted \texttt{backup} login \\
 \texttt{198.51.100.89} & 700 & High volume \\
 \bottomrule
 \end{tabularx}
@@ -84,12 +101,12 @@ Username & Failed & Relevance \\
 Window & Failed & Accepted & Note \\
 \midrule
 Night (00:00--05:59) & 3,643 & 149 & Brute-force concentrated here ($\sim$70\% of all failures) \\
-Day (06:00--23:59) & 1,533 & 1,710 & Legitimate activity dominates business hours \\
+Day (06:00--23:59) & 1,533 & 1,710 & Accepted activity dominates business hours \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-Peak failed-login hours are 02:00--04:00; a secondary spike occurs at 23:00. Peak accepted-login hours are 08:00--18:00. The successful \texttt{backup} login (Jul 11 03:08:19) falls inside the peak attack window.
+Peak failed-login hours are 02:00--04:00; a secondary spike occurs at 23:00. Peak accepted-login hours are 08:00--18:00. For \texttt{backup}, 27 of 390 accepted logins (6.9\%) occur from 00:00 to 05:59. The Jul 11 03:08:19 login is therefore uncommon, but not unprecedented, and falls inside the peak attack window.
 
 These counts support the off-hours finding cited in Part 1 (\S4).
 
@@ -141,8 +158,10 @@ COMMAND=/usr/bin/systemctl status cron
 \setcounter{figure}{0}
 \begin{itemize}
     \item Format assumed: Mon DD HH:MM:SS host process[pid]: message; no year in timestamps.
+    \item Asset assumption: \texttt{backup01} stores production backup data and supports production recovery.
+    \item Account-role assumption: \texttt{backup} is a non-interactive backup service identity; named accounts perform human administration.
     \item Username handling covers both \texttt{Failed password for USER} and \texttt{Failed password for invalid user USER}.
-    \item Non-standard lines (e.g. \texttt{Connection closed by authenticating user ...}, \texttt{reverse mapping ... POSSIBLE BREAK-IN ATTEMPT}) are classified or counted as unmatched, not silently dropped.
+    \item Non-standard connection-close and reverse-mapping warning lines are classified or counted as unmatched, not silently dropped.
     \item Unmatched-line count: 0.
 \end{itemize}
 

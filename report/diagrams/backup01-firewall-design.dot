@@ -1,0 +1,117 @@
+digraph BackupFirewallDesign {
+    graph [
+        rankdir=TB,
+        bgcolor="white",
+        pad=0.25,
+        nodesep=0.55,
+        ranksep=0.24,
+        fontname="DejaVu Sans"
+    ];
+
+    node [
+        shape=box,
+        style="rounded,filled",
+        fontname="DejaVu Sans",
+        fontsize=14,
+        margin="0.20,0.14",
+        penwidth=1.6,
+        color="#374151"
+    ];
+
+    edge [
+        fontname="DejaVu Sans",
+        fontsize=11,
+        penwidth=2.2,
+        arrowsize=0.9
+    ];
+
+    internet [
+        label="Internet /\nUntrusted Sources",
+        fillcolor="#FDECEC",
+        color="#B91C1C",
+        fontcolor="#7F1D1D"
+    ];
+
+    firewall [
+        label="Firewall\nDefault-Deny Inbound Policy",
+        fillcolor="#FFF4D6",
+        color="#B45309",
+        fontcolor="#78350F"
+    ];
+
+    lan [
+        label="Internal LAN\nApproved Systems Only",
+        fillcolor="#E8F1FB",
+        color="#1D4ED8",
+        fontcolor="#1E3A8A"
+    ];
+
+    backup [
+        label="backup01\nProduction Backup Server",
+        fillcolor="#E8F7ED",
+        color="#15803D",
+        fontcolor="#14532D",
+        penwidth=2.0
+    ];
+
+    denied_label [
+        label="Direct SSH Denied",
+        shape=box,
+        style=filled,
+        fillcolor="white",
+        color="white",
+        fontcolor="#991B1B",
+        fontsize=11,
+        margin="0.18,0.10"
+    ];
+
+    permitted_label [
+        label="Permitted Internal Traffic",
+        shape=box,
+        style=filled,
+        fillcolor="white",
+        color="white",
+        fontcolor="#166534",
+        fontsize=11,
+        margin="0.18,0.10"
+    ];
+
+    approved_label [
+        label="Approved Backup and\nAdministration Access",
+        shape=box,
+        style=filled,
+        fillcolor="white",
+        color="white",
+        fontcolor="#166534",
+        fontsize=11,
+        margin="0.18,0.10"
+    ];
+
+    internet -> denied_label [
+        color="#B91C1C",
+        arrowhead=none
+    ];
+
+    denied_label -> firewall [
+        color="#B91C1C",
+        arrowhead=tee
+    ];
+
+    firewall -> permitted_label [
+        color="#15803D",
+        arrowhead=none
+    ];
+
+    permitted_label -> lan [
+        color="#15803D"
+    ];
+
+    lan -> approved_label [
+        color="#15803D",
+        arrowhead=none
+    ];
+
+    approved_label -> backup [
+        color="#15803D"
+    ];
+}
