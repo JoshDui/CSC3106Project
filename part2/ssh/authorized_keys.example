@@ -1,0 +1,16 @@
+# part2/ssh/authorized_keys.example
+# ILLUSTRATIVE / PROPOSED entry for the backup service account's
+# ~backup/.ssh/authorized_keys (not a real key).
+#
+# Mirrors the Part 2 control: restrict the backup key by internal source and
+# bind it to a forced command so a stolen key can only run the backup workflow.
+#
+# Options:
+#   from="..."     accept this key only from approved internal sources
+#                  (placeholder CIDR/hosts below - replace with the real ones)
+#   command="..."  force the backup wrapper; ignore any client-supplied command
+#   restrict       disable pty, port/agent/X11 forwarding (enable none by default)
+#
+# The public key material below is a non-functional placeholder.
+
+from="10.0.0.0/8",command="/usr/local/sbin/backup-wrapper",restrict ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAExampleExampleExampleExamplePLACEHOLDER backup@orchestrator

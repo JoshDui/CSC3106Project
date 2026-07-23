@@ -1,0 +1,24 @@
+# part2/ssh/sshd_config
+# ILLUSTRATIVE / PROPOSED hardening for backup01 (not a deployed config).
+# Mirrors the Part 2 controls: key-only SSH, no password auth, no direct root
+# login, and a non-interactive backup service account.
+#
+# Only the directives relevant to the report's controls are shown; a real
+# deployment would keep the distribution defaults for everything else.
+
+# --- Authentication: keys only, no passwords, no root -----------------------
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+UsePAM yes
+
+# --- Confine the backup service account -------------------------------------
+# backup is a service identity, not an interactive account. It authenticates
+# with a source- and command-restricted key (see authorized_keys.example) and
+# is denied a shell/TTY and forwarding here as defence in depth.
+Match User backup
+    PermitTTY no
+    X11Forwarding no
+    AllowTcpForwarding no
+    AllowAgentForwarding no

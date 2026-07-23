@@ -1,0 +1,55 @@
+## part2/selinux/backup_confined.te
+## ILLUSTRATIVE / PROPOSED SELinux policy SKETCH - NOT compiled or verified.
+##
+## We have no SELinux-enforcing system available to build or test this module,
+## so it is provided as a design sketch that follows SELinux reference-policy
+## type-enforcement conventions. On a real system it would be compiled with,
+## for example:
+##     checkmodule -M -m -o backup_confined.mod backup_confined.te
+##     semodule_package -o backup_confined.pp -m backup_confined.mod
+##     semodule -i backup_confined.pp
+##
+## Mirrors the Part 2 control: run the backup process in a custom confined
+## domain that may touch only its own backup data. The containment comes from
+## what is NOT allowed: with no rules granting access to sensitive types, the
+## default-deny nature of SELinux under enforcing mode blocks them.
+
+policy_module(backup_confined, 0.1)
+
+########################################
+# Types
+########################################
+
+# The confined backup domain and its entrypoint executable.
+type backup_t;
+type backup_exec_t;
+
+# Label for the backup data tree the domain is allowed to work on.
+type backup_data_t;
+
+# Standard reference-policy helpers: make backup_t a domain entered by
+# executing a backup_exec_t file, and mark backup_data_t as a file type.
+domain_type(backup_t)
+domain_entry_file(backup_t, backup_exec_t)
+files_type(backup_data_t)
+
+########################################
+# Allowed access (its own data only)
+########################################
+
+allow backup_t backup_data_t:dir { search read getattr write add_name remove_name };
+allow backup_t backup_data_t:file { create read getattr write append unlink };
+
+########################################
+# Deliberately NOT granted -> denied by default under enforcing:
+#   shadow_t / passwd_file_t   (account databases)
+#   sudoers_t                  (/etc/sudoers, /etc/sudoers.d)
+#   cron_spool_t               (cron persistence)
+#   sshd_key_t                 (SSH host keys)
+#   var_log_t (unrelated logs) beyond the backup role
+#
+# There is intentionally no `allow backup_t <sensitive_type>` rule. A confined
+# domain that reaches these types would require an explicit allow that this
+# policy withholds, so privilege escalation and anti-forensic tampering via the
+# backup context are contained rather than merely discouraged.
+########################################

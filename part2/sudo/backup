@@ -1,0 +1,24 @@
+# part2/sudo/backup
+# ILLUSTRATIVE / PROPOSED /etc/sudoers.d/backup drop-in (not deployed).
+# Validate syntax with:  visudo -cf part2/sudo/backup
+#
+# Mirrors the Part 2 control: an exact-command sudo allowlist for the backup
+# service account, with no general shell, no su, and no arbitrary sudo.
+#
+# The command list is based on OUR INTERPRETATION of what a backup service
+# account plausibly needs (log inspection and service status checks). It MUST
+# be replaced with the exact commands the real backup jobs require. Anything
+# not listed here is denied by default, which is the point.
+
+Cmnd_Alias BACKUP_OPS = /usr/bin/journalctl, \
+                        /usr/bin/systemctl status *, \
+                        /usr/bin/systemctl is-active *
+
+# Only the listed commands, as root, without a password prompt for automation.
+backup ALL=(root) NOPASSWD: BACKUP_OPS
+
+# Reduce shell-escape surface from the few allowed programs.
+Defaults!BACKUP_OPS noexec
+
+# Note: no ALL command grant, no /bin/su, no /bin/bash, no package management.
+# Interactive administration must use the named admin accounts instead.

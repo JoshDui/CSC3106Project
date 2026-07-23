@@ -1,0 +1,37 @@
+#!/usr/sbin/nft -f
+# part2/firewall/backup01.nft
+# ILLUSTRATIVE / PROPOSED nftables ruleset for backup01 (not deployed).
+# Check syntax with:  nft -c -f part2/firewall/backup01.nft
+#
+# Readable nftables version of the Part 2 firewall diagram (Figure 3):
+# default-deny inbound, with SSH (TCP/22) reachable only from approved internal
+# sources. Untrusted networks cannot reach the service before authentication.
+
+# Approved internal sources (placeholder - replace with the real backup and
+# administration ranges/hosts).
+define INTERNAL = 10.0.0.0/8
+
+# A real deployment may reset first with `nft flush ruleset` or replace this
+# table atomically; it is omitted here so the file parses with `nft -c` as a
+# non-root user.
+table inet backup01 {
+    chain input {
+        type filter hook input priority 0; policy drop;
+
+        iif "lo" accept
+        ct state established,related accept
+        ct state invalid drop
+
+        # SSH only from approved internal sources; everything else is dropped
+        # by the default policy above (untrusted networks included).
+        ip saddr $INTERNAL tcp dport 22 ct state new accept
+    }
+
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+    }
+
+    chain output {
+        type filter hook output priority 0; policy accept;
+    }
+}

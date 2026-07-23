@@ -1,0 +1,21 @@
+# part2/fail2ban/jail.local
+# ILLUSTRATIVE / PROPOSED fail2ban jail (not deployed).
+#
+# Mirrors the Part 2 control: the SSH rate-limiting / lockout the report cites
+# to reduce automated scanning load. It is a supporting control, not the main
+# access control (the firewall and key-only SSH are), and the report notes the
+# denial-of-service trade-off of aggressive thresholds.
+
+[DEFAULT]
+# Do not lock out the approved internal backup/administration sources.
+# Replace with the real internal ranges/hosts.
+ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8
+bantime  = 1h
+findtime = 10m
+maxretry = 5
+
+[sshd]
+enabled  = true
+port     = ssh
+logpath  = /var/log/auth.log
+backend  = auto
