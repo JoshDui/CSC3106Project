@@ -16,3 +16,6 @@ __pycache__/
 
 # Compiled report PDF (built by CI, not tracked)
 report/main.pdf
+
+# Submission package build artefact
+dist/

@@ -1,81 +1,102 @@
-# Part 1 Authentication Log Analysis
+# CSC3106 Mini-Project — Part 1 Authentication Log Analysis
 
-This folder contains the Python evidence-generation script for CSC3106 Mini-Project Part 1. The script parses the assigned Linux authentication log extract, generates CSV summary tables, and creates visualisations used to support the Part 1 report.
-
-## Security Framing
-
-The analysis focuses on the question:
-
-Which authentication events or patterns in the assigned log extract should be prioritised for investigation or response, and why?
-
-The script treats failed password events, invalid-user attempts, maximum-authentication failures, and pre-authentication connection closures as failed authentication-related events. These are counted separately in the output so the report can avoid treating every event type as the same kind of failed login.
+`analysis.py` performs a reproducible analysis of the assigned SSH authentication
+log (`4_auth.log`). It parses the log, classifies authentication events and attack
+stages, and writes the summary tables and figures used as evidence in the report.
 
 ## Requirements
 
-- Python 3
-- matplotlib
-
-No network access is required. The script reads the local log file and writes all outputs to the local `output/` folder.
-
-## Input
-
-The default input path is:
+- Python 3.10 or newer
+- `pandas`
+- `matplotlib`
 
 ```bash
-../4_auth.log
+python3 -c "import pandas, matplotlib"
 ```
 
-This matches the assigned authentication log extract for the relevant project groups in the brief.
+## How to run
 
-Syslog timestamps do not include a year. Daily summaries and visualisations therefore use the month and day shown in the raw log, such as `Jul 06`, not a fabricated calendar year.
-
-## How to Run
-
-From this folder:
+From this folder (`part1/`), with `4_auth.log` alongside `analysis.py`:
 
 ```bash
 python3 analysis.py
 ```
 
-Optional arguments:
+This reads `4_auth.log` and writes all tables and figures to `output/`. The
+defaults make it equivalent to:
 
 ```bash
-python3 analysis.py ../4_auth.log --output-dir output
+python3 analysis.py --input 4_auth.log --output output
 ```
 
-## Generated Outputs
+## Expected input
 
-The script generates:
+A Linux `auth.log`-style text file with syslog timestamps, for example:
 
-- `output/summary_counts.csv`: overall counts used for the report.
-- `output/top_source_ips.csv`: source IPs ranked by failed authentication-related events.
-- `output/failed_attempts_by_day.csv`: daily failed authentication-related event counts.
-- `output/top_targeted_usernames.csv`: usernames ranked by failed authentication-related events.
-- `output/top_valid_usernames.csv`: recognised usernames ranked by failed authentication-related events.
-- `output/top_invalid_usernames.csv`: invalid usernames ranked by invalid-user-related events.
-- `output/event_type_counts.csv`: parsed event categories and counts.
-- `output/top_source_ips.png`: required visualisation showing top source IPs by failed authentication-related events.
-- `output/failed_attempts_by_day.png`: second visualisation showing when failed authentication-related events peak.
+```
+Jul 06 03:40:05 backup01 sshd[4207]: Failed password for j.singer from 192.0.2.31 port 60064 ssh2
+```
 
-If any log lines do not match the expected syslog format, the script also writes:
+## Generated outputs
 
-- `output/unmatched_lines.csv`
+Written to `output/`.
 
-## Parsing Assumptions
+**Tables (CSV)**
 
-- The log uses a standard syslog-like format: month, day, time, hostname, service, optional process ID, and message.
-- The raw log does not include a year, so report-facing date labels use only the month and day from the log.
-- SSH authentication messages are produced by `sshd`.
-- The script extracts usernames, source IP addresses, and ports from recognised SSH patterns.
-- Sudo activity is counted when the service is `sudo`.
-- CRON and other non-SSH/non-sudo events are retained as parsed events but classified as `other` unless a more specific parser is added.
-- Empty lines are ignored.
-- Lines that do not match the syslog pattern are counted and optionally written to `unmatched_lines.csv`.
+| File | Contents |
+| ---- | -------- |
+| `parsed_events.csv` | Every parsed line: event type, attack stage, username, source IP/port, command |
+| `event_type_counts.csv` | Totals per event type |
+| `attack_stage_counts.csv` | Totals per attack-lifecycle stage |
+| `top_source_ips_failed.csv` | Source IPs ranked by failed authentications |
+| `top_targeted_users.csv` | Usernames ranked by failed/invalid attempts |
+| `priority_finding_backup_login_timeline.csv` | The strongest suspicious `backup` login sequence |
+| `accepted_backup_login_correlations.csv` | Failure-to-success correlation and detection alerts |
+| `sudo_after_accepted_login.csv` | `sudo` activity following an accepted login |
+| `timestamp_anomalies.csv` | Log-order reversals in file order |
+
+**Figures (PNG)**
+
+- `top_source_ips_failed.png` — required top-source-IPs visualisation
+- `top_targeted_users.png`
+- `figure2_attack_stages_backup_login.png` — second visualisation
+
+## Key decisions and assumptions
+
+- **Event identification.** SSH outcomes are matched by regex on the message body
+  (`failed_password`, `accepted_password`, `invalid_user`, `max_auth_attempts`,
+  `sudo_command`, session/cron events). Usernames, source IPs, and ports are
+  extracted from these patterns; unmatched lines are retained with a `parse_status`
+  flag rather than silently dropped.
+- **Year.** Syslog timestamps carry no year, so `DEFAULT_YEAR = 2026` is applied.
+- **Privileged accounts.** Configured in `PRIVILEGED_ACCOUNTS`.
+- **Suspicious sources.** Ranked from failed-password, max-auth, and break-in
+  evidence using thresholds defined near the top of the script.
+- **Priority finding.** Selected by counting same-source failures in the 60-minute
+  window preceding an accepted `backup` login; post-login failures are reported
+  separately.
+
+## Detection rule (baseline-relative)
+
+`accepted_backup_login_correlations.csv` flags an accepted `backup` login when its
+preceding-hour, per-source failure count rises far above the **established
+per-source baseline**, rather than exceeding a fixed count. The threshold is derived
+from the data, tuned by three parameters near the top of the script:
+
+- `DETECTION_BASELINE_PERCENTILE = 95` — robust upper bound of normal behaviour
+- `DETECTION_BASELINE_MULTIPLIER = 10` — how far above baseline counts as anomalous
+- `DETECTION_ABSOLUTE_FLOOR = 20` — lower bound that suppresses trivial deviations
+
+On this extract the rule flags only `203.0.113.89` (87 preceding-hour failures
+against an established-source maximum of 3).
 
 ## Limitations
 
-- Counts are event counts, not confirmed unique attacker sessions.
-- A failed password, an invalid-user event, and a maximum-authentication event may represent different stages or types of authentication pressure. The report should describe them precisely rather than merging them into a single unsupported claim.
-- The script does not prove whether a successful login was authorised or malicious. Successful login counts should be interpreted with caution and, ideally, checked against asset ownership, expected login sources, and user activity records.
-- The source IP addresses in this dataset may be documentation/test ranges rather than real public hosts. Do not attempt to scan, contact, or investigate them outside the supplied dataset.
-- The script does not perform geolocation, threat intelligence lookup, or live network checks.
+- The script analyses authentication and post-login evidence only; it cannot prove
+  compromise, malware execution, data access, or intent by itself.
+- An accepted password means authentication succeeded, not that the login was
+  authorised or malicious.
+- Timestamp anomalies indicate log-ordering or collection issues, not proof of
+  tampering.
+- Source IPs may be documentation or simulated ranges; treat them as evidence
+  labels unless independently validated.
