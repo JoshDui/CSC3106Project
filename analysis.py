@@ -1111,6 +1111,15 @@ def print_console_summary(df: pd.DataFrame, output_dir: Path, metrics: dict[str,
     print(f"total accepted_password events: {count_event(df, 'accepted_password')}")
     print(f"total sudo_command events: {count_event(df, 'sudo_command')}")
     print(f"number of suspicious source IPs: {metrics['suspicious_source_count']}")
+
+    # Top source IPs by failed password (the high-volume scanners discussed in
+    # Part 1). Printed here so the console output corroborates the report and
+    # top_source_ips_failed.csv, not only the single priority finding below.
+    top_failed = top_source_ips_failed(df).head(5)
+    print("top source IPs by failed password:")
+    for _, row in top_failed.iterrows():
+        print(f"  {row['source_ip']}: {int(row['failed_password_count'])} failed")
+
     print(f"priority finding source IP: {metrics['priority_source_ip'] or 'not found'}")
     print(f"priority finding successful backup login: {metrics['priority_success_time'] or 'not found'}")
     print(
