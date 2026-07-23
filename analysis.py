@@ -13,6 +13,7 @@ the output directory.
 from __future__ import annotations
 
 import argparse
+import math
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -32,7 +33,13 @@ PRIORITY_FINDING_USERNAME = "backup"
 PRIORITY_FINDING_LOOKBACK_MINUTES = 60
 PRIORITY_FINDING_LOOKAHEAD_MINUTES = 150
 PRIORITY_FINDING_FAILURE_TYPES = ("failed_password", "max_auth_attempts")
-DETECTION_FAILED_PASSWORD_THRESHOLD = 50
+# Detection is baseline-relative rather than a fixed count: an accepted backup
+# login is flagged when its preceding-hour failure count rises sharply above the
+# established per-source baseline, subject to an absolute floor that suppresses
+# trivial deviations. The threshold is derived from the observed data, not hard-coded.
+DETECTION_BASELINE_PERCENTILE = 95     # robust upper bound of "normal" per-login failures
+DETECTION_BASELINE_MULTIPLIER = 10     # how far above baseline counts as anomalous
+DETECTION_ABSOLUTE_FLOOR = 20          # minimum count to alert, guards against tiny baselines
 STALE_REPLACED_OUTPUTS = (
     "accepted_after_failures.csv",
     "suspicious_successes.png",
@@ -608,7 +615,9 @@ def accepted_backup_login_correlations(df: pd.DataFrame) -> pd.DataFrame:
         "is_peak_attack_window",
         "same_timestamp_sudo_count",
         "same_timestamp_sudo_commands",
-        "alert_threshold",
+        "established_source_baseline",
+        "baseline_multiple",
+        "detection_threshold",
         "alert_triggered",
     ]
     accepted_df = df[
@@ -659,12 +668,40 @@ def accepted_backup_login_correlations(df: pd.DataFrame) -> pd.DataFrame:
                 "same_timestamp_sudo_commands": ";".join(
                     same_timestamp_sudo["command"].astype(str)
                 ),
-                "alert_threshold": DETECTION_FAILED_PASSWORD_THRESHOLD,
-                "alert_triggered": failure_count >= DETECTION_FAILED_PASSWORD_THRESHOLD,
             }
         )
 
-    return pd.DataFrame(records, columns=columns).sort_values("accepted_time")
+    result = pd.DataFrame(records, columns=columns)
+    if result.empty:
+        return result
+
+    # Baseline-relative detection: derive the alert threshold from the population
+    # of accepted backup logins instead of using a fixed count. A single anomalous
+    # source barely shifts a high percentile, so the 95th percentile approximates
+    # normal per-login preceding-failure behaviour. The threshold is that baseline
+    # scaled up, with an absolute floor to avoid alerting on trivial deviations.
+    counts = result["preceding_failed_password_count"].astype(float)
+    baseline_p95 = float(counts.quantile(DETECTION_BASELINE_PERCENTILE / 100.0))
+    detection_threshold = max(
+        DETECTION_ABSOLUTE_FLOOR,
+        int(math.ceil(DETECTION_BASELINE_MULTIPLIER * baseline_p95)),
+    )
+    triggered = counts >= detection_threshold
+
+    # Established-source baseline: the largest preceding-failure count among the
+    # non-anomalous (established) logins, used to express how far the flagged
+    # source deviates (e.g. 87 vs an established maximum of 3).
+    established_counts = counts[~triggered]
+    established_baseline = int(established_counts.max()) if not established_counts.empty else 0
+
+    result["established_source_baseline"] = established_baseline
+    result["baseline_multiple"] = (
+        (counts / established_baseline).round(1) if established_baseline > 0 else float("nan")
+    )
+    result["detection_threshold"] = detection_threshold
+    result["alert_triggered"] = triggered
+
+    return result.sort_values("accepted_time")
 
 
 def sudo_severity(username: str, command: str) -> str:
@@ -1141,7 +1178,10 @@ Main assumptions:
       backup login sequence by counting failed attempts from the same source IP
       during the preceding 60 minutes. Post-login failures are reported separately.
     - accepted_backup_login_correlations.csv evaluates every accepted backup login
-      against an account-specific 60-minute failure threshold.
+      against a baseline-relative anomaly rule: the preceding-hour, account-specific
+      failure count is compared with an established-source baseline (derived from the
+      95th percentile of normal logins, scaled by DETECTION_BASELINE_MULTIPLIER, with
+      DETECTION_ABSOLUTE_FLOOR as a lower bound) rather than a fixed threshold.
     - figure2_attack_stages_backup_login.png marks the selected successful backup
       login on the lifecycle-stage timeline.
     - sudo_after_accepted_login.csv uses a 10-minute prior window for the same username.
