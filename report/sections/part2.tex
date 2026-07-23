@@ -36,7 +36,7 @@ Actions on objectives / privilege action & Accepted \texttt{backup} login is fol
 \toprule
 Attack stage & Control & Security effect \\
 \midrule
-Network reachability and password guessing & Default-deny firewall; no direct access from untrusted networks; approved internal sources only; key-only SSH and rate limiting. & Untrusted scanning is blocked before it reaches SSH; password guessing cannot grant access by default. \\
+Network reachability and password guessing & Default-deny firewall restricting inbound \texttt{TCP/22} to approved internal administration and backup sources; no direct access from untrusted networks; key-only SSH and rate limiting. & Untrusted scanning is blocked before it reaches SSH; password guessing cannot grant access by default. \\
 Valid-account SSH access & Restrict the \texttt{backup} key by internal source; apply a forced command and no interactive shell. & A stolen key works only from approved internal systems and can invoke only the backup workflow. \\
 Privilege escalation via sudo & Exact-command sudo allowlist; deny unrestricted sudo, \texttt{su}, shell escapes, and package or system administration. & A compromised service context cannot obtain a general root shell or run arbitrary privileged commands. \\
 Post-compromise tampering & SELinux enforcing with a custom confined backup domain and no transition to unconfined root. & Limits writes to system files, persistence locations, and paths outside the documented backup role. \\
